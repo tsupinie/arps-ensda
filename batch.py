@@ -3,7 +3,14 @@ import subprocess
 from datetime import datetime
 from math import ceil
 import time
+import copy
+import getpass
 
+#################################################
+#
+# Parsing functions for Stampede (TACC)
+#
+#################################################
 def parseQLineStampede(line):
     cols_order = ['id', 'name', 'username', 'state', 'ncores', 'timerem'] #, 'timestart']
     cols = dict([
@@ -40,29 +47,64 @@ def parseSubmitStampede(text):
         ret_val = -1
     return ret_val
 
-def parseQLineKraken(line):
-    field_widths = []
-    qstat = []
-    for line in text:
-        if line.startswith('---'):
-            field_widths = [ len(f) for f in line.split() ]
-            continue
+#################################################
+#
+# Parsing functions for TORQUE Submission
+#
+#################################################
+def parseQLineTorque(line):
+    cols_order = ['id', 'username', 'queue', 'name', 'sessionid', 'nnodes', 'ncores', 'reqmem', 'reqtime', 'state', 'timerem']
+    cols = dict([
+        ('id',        slice(0, 20)), 
+        ('username',  slice(21, 32)), 
+        ('queue',     slice(33, 41)), 
+        ('name',      slice(42, 58)), 
+        ('sessionid', slice(59, 65)), 
+        ('nnodes',    slice(66, 71)), 
+        ('ncores',    slice(72, 78)), 
+        ('reqmem',    slice(79, 85)), 
+        ('reqtime',   slice(86, 91)), 
+        ('state',     slice(92, 93)), 
+        ('timerem',   slice(94, 99)),
+    ])
 
-        if field_widths != []:
-            fields = []
-            offset = 0
-            for width in field_widths:
-                fields.append(line[(offset):(offset + width)])
-                offset += width + 1
+    line_dict = {}
+    for name in cols_order:
+        line_dict[name] = line[cols[name]].strip()
 
-#           print fields
-            qstat.append(fields)
-    return qstat
+    try:
+        line_dict['id'] = int(line_dict['id'].split('.')[0])
+        line_dict['ncores'] = int(line_dict['ncores'])
+    except ValueError:
+        return ""
 
-def parseSubmitKraken(text):
+    return line_dict
+
+def parseSubmitTorque(text):
     return int(text.split(".")[0])
 
 _environment = {
+    'supermic':{
+        'btmarker':"PBS",
+        '-A':"%(allocation)s",
+        '-q':"%(queue)s",
+        '-o':"%(debugfile)s",
+        '-j':"oe",
+        '-N':"%(jobname)s",
+        '-l':"walltime=%(timereq)s,nodes=%(nnodes)d:ppn=%(n_cores_per_node)d",
+        'queueprog':'qstat',
+        'queueparse':parseQLineTorque,
+        'submitprog':'qsub',
+        'submitparse':parseSubmitTorque,
+
+        'mpiprog':'mpirun',
+        'mpicoresopt':'np',
+        'mpimultcoresopt':'',
+        'mpimultoffsetopt':'',
+        'mpiompopt':'',
+
+        'n_cores_per_node':20,
+    },
     'stampede':{
         'btmarker':"SBATCH", 
         '-J':"%(jobname)s",
@@ -84,12 +126,12 @@ _environment = {
 
         'n_cores_per_node':16, 
     },
-    'kraken':{ 
+    'kraken':{ # Decommissioned
         'btmarker':"PBS",
         'queueprog':'qstat',
-        'queueparse':parseQLineKraken,
+        'queueparse':parseQLineTorque,
         'submitprog':'qsub',
-        'submitparse':parseSubmitKraken,
+        'submitparse':parseSubmitTorque,
 
         'mpiprog':'aprun',
         'mpicoresopt':'n',
@@ -104,18 +146,22 @@ _environment = {
 }
 
 class Batch(object):
-    def __init__(self, environment, username="tsupinie"):
+    def __init__(self, environment):
         self._env = _environment[environment]
-        self._username = username
+        self._username = getpass.getuser()
         self._resetMultiMPICount()
         return
 
     def genSubmission(self, commands, **kwargs):
         env_dict = {}
+
+        opts = copy.copy(kwargs)
+        opts['n_cores_per_node'] = self._env['n_cores_per_node']
+
         for k, v in self._env.iteritems():
             try:
                 assert k[0] == '-'
-                env_dict[k] = v % kwargs
+                env_dict[k] = v % opts
             except (AssertionError, KeyError):
                 pass
             
@@ -251,7 +297,8 @@ class Batch(object):
         return stdin_str, stdout_str, switch_str
 
 if __name__ == "__main__":
-    bt = Batch('stampede')
-#   bt_text = bt.gen(['ls $HOME', 'ls $WORK'], jobname='test', debugfile='test.debug', ncores=1, nnodes=1, queue='normal', timereq='00:05:00')
-#   bt.submit(bt_text)
+    bt = Batch('supermic')
+    bt_text = bt.genSubmission(['ls $HOME', 'ls $WORK'], jobname='test', debugfile='test.debug', ncores=1, nnodes=1, queue='workq', timereq='00:05:00')
+    open('test.pbs', 'w').write(bt_text)
+    bt.submit(bt_text)
     bt.getQueueStatus()
