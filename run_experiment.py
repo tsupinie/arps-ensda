@@ -637,7 +637,7 @@ def main():
     ap.add_argument('--debug', dest='debug', action='store_true')
 
     args = ap.parse_args()
-    batch = Batch('stampede')
+    batch = Batch.autoDetectMachine()
 
     work_path, input_path, debug_path, boundary_path, hx_path =\
         getPaths(args.base_path, args.job_name, work=True, input=True, debug=True, boundary=True, hx=True)

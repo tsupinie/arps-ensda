@@ -5,6 +5,7 @@ from math import ceil
 import time
 import copy
 import getpass
+import socket
 
 #################################################
 #
@@ -152,6 +153,26 @@ class Batch(object):
         self._resetMultiMPICount()
         return
 
+    @staticmethod
+    def autoDetectMachine():
+        hosts = {
+            'smic1':'supermic',
+            'login1.stampede.tacc.utexas.edu':'stampede',
+            'login2.stampede.tacc.utexas.edu':'stampede',
+            'login3.stampede.tacc.utexas.edu':'stampede',
+            'login4.stampede.tacc.utexas.edu':'stampede',
+        }
+
+        host = socket.gethostname()
+        try:
+            env = hosts[host]
+        except KeyError:
+            print "Could not figure out what machine you're running on!\nsocket.hostname() returned '%s'." % host
+            import sys
+            sys.exit()
+
+        return Batch('supermic')
+
     def genSubmission(self, commands, **kwargs):
         env_dict = {}
 
@@ -297,8 +318,8 @@ class Batch(object):
         return stdin_str, stdout_str, switch_str
 
 if __name__ == "__main__":
-    bt = Batch('supermic')
+    bt = Batch.autoDetectMachine()
     bt_text = bt.genSubmission(['ls $HOME', 'ls $WORK'], jobname='test', debugfile='test.debug', ncores=1, nnodes=1, queue='workq', timereq='00:05:00')
     open('test.pbs', 'w').write(bt_text)
-    bt.submit(bt_text)
-    bt.getQueueStatus()
+#   bt.submit(bt_text)
+#   bt.getQueueStatus()
